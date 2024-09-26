@@ -38,3 +38,4 @@ notebooks/feature_extraction.ipynb
 reports/
 models/*
 *.toml
+notebooks/phishing_classifier_eda.ipynb
