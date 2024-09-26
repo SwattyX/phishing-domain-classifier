@@ -18,7 +18,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'phishing-app=app.main:run',  # A script to run your app easily
+            'phishing_domain_classifier=run_app',
         ],
     },
 )
