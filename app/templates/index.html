@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phishing Domain Classifier</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="text-center text-light py-5">
+        <h1 class="display-4 text">Phishing Domain Classifier</h1>
+        <p>Detect if any URL is a phishing threat.</p>
+    </header>
+
+    <div class="container">
+        <div class="card p-5 shadow-lg">
+            <h2 class="text-center mb-4">Let's scan your URL</h2>
+            <form id="urlForm">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="urlInput" name="url" placeholder="https://example.com" required>
+                    <div class="form-text">Please enter a valid URL to detect if it's phishing.</div>
+                </div>
+                <button type="submit" class="btn btn-primary">Scan</button>
+            </form>
+            <div class="result mt-4" id="result" style="display: none;">
+                <div class="alert" role="alert" id="resultAlert"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies (Popper.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- External Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
