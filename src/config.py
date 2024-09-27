@@ -1,12 +1,13 @@
 from sklearn.ensemble import ExtraTreesClassifier
 import os
+import logging
 
 class Config:
     DEBUG = False
     DATA_PATH = 'data/processed'
-    RAW_DATA_PATH = 'data/raw/phishing_data.arff'
-    #MODEL_PATH = 'models/phishing_model.pkl'
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), '../models/phishing_model.pkl')
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  
+    RAW_DATA_PATH = os.path.join(BASE_DIR, 'data', 'raw', 'phishing_data.csv')
+    MODEL_PATH = os.path.join(BASE_DIR, 'models', 'phishing_model.pkl')
     MODELS = {
         'ExtraTreesClassifier': {
             'class': ExtraTreesClassifier,

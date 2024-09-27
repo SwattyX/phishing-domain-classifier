@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify
-from src.feature_pipeline import FeatureExtractor
+from src.feature_pipeline import FeatureExtractor, parse_features
 from src.config import Config
 import joblib
 import numpy as np
@@ -23,8 +23,9 @@ def predict():
             return jsonify({'success': False, 'message': 'No URL provided.'}), 400
         url = data['url']
         
-        # # Preprocess the input data
+        # Preprocess the input data
         X_processed = FeatureExtractor(url).extract_all_features()
+        features = parse_features(X_processed)
 
         # Make prediction
         prediction = model.predict(X_processed)
@@ -33,7 +34,8 @@ def predict():
         return jsonify({
             'success': True,
             'prediction': int(prediction[0]),
-            'probability': probability
+            'probability': probability,
+            'features': features
         })
 
     except Exception as e:

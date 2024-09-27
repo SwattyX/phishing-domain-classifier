@@ -15,11 +15,8 @@ import json
 from typing import List, Optional
 import logging
 
-
 def load_data(file_path: str) -> pd.DataFrame:
-    data = arff.load(open(file_path, 'r'))
-    df = pd.DataFrame(data['data'])
-    df.columns = [attr[0] for attr in data['attributes']]
+    df = pd.read_csv(file_path)
     df = df.astype('int64')
     return df
 
@@ -48,8 +45,8 @@ class FeatureExtractor:
         self.domain = self.parsed_url.netloc.split(':')[0].lower() #self.parsed_url.hostname #
         self.tld_info = tldextract.extract(self.domain)
         self.subdomain = self.tld_info.subdomain.replace('www.', '')
-        print(self.parsed_url)
-        print(tldextract.extract(url))
+        # print(self.parsed_url)
+        # print(tldextract.extract(url))
 
     def _get_url_content(self) -> None:
         try:
@@ -213,7 +210,7 @@ class FeatureExtractor:
         port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
         context = ssl.create_default_context()
         domain = self.domain
-        print(f"domain: {domain}")
+        print(f"Domain: {domain}")
         try:
             # Create a socket connection with server
             with socket.create_connection((domain, port), timeout=5) as sock:           
@@ -246,7 +243,7 @@ class FeatureExtractor:
         try:
             # print(self.whois)
             expiration_date = self.whois.expiration_date
-            print("expiration_date: ",expiration_date)
+            # print("expiration_date: ",expiration_date)
 
             if isinstance(expiration_date, list):
                 expiration_date = expiration_date[0]  # Take the first expiration date
@@ -931,39 +928,49 @@ class FeatureExtractor:
             # Add more feature method calls here as needed
         ]
         return [features]
+
+def parse_features(features: list) -> str:
+    parsed_features = []
+    for i in range(len(FEATURES)):
+        if i < len(features[0]):
+            parsed_features.append(f"{i+1}: {features[0][i]}\t{FEATURES[i]}\n")
+        else:
+            parsed_features.append(f"{i+1}: N/A\t{FEATURES[i]}\n")
     
-features=[
-'has_ip_address',
-'url_length_feature',
-'uses_tinyurl',
-'has_at_symbol',
-'has_multiple_slashes',
-'has_hyphen_in_domain',
-'count_subdomains',
-'check_https_cert',
-'domain_registration_length',
-'favicon_external',
-'uses_non_standard_port',
-'has_https_token_in_domain',
-'request_url_feature',
-'anchor_url_feature',
-'links_in_tags_feature',
-'server_form_handler_feature',
-'submitting_info_to_email_feature',
-'abnormal_url_feature',
-'website_forwarding_feature',
-'status_bar_customization_feature',
-'disabling_right_click_feature',
-'using_popup_window_feature',
-'iframe_redirection_feature',
-'age_of_domain_feature',
-'dns_record_feature',
-'website_traffic_feature',
-'pagerank_feature',
-'google_index_feature',
-'number_of_links_pointing_to_page_feature',
-'statistical_reports_based_feature'
-]
+    return ''.join(parsed_features)
+
+FEATURES=[
+            'has_ip_address',
+            'url_length_feature',
+            'uses_tinyurl',
+            'has_at_symbol',
+            'has_multiple_slashes',
+            'has_hyphen_in_domain',
+            'count_subdomains',
+            'check_https_cert',
+            'domain_registration_length',
+            'favicon_external',
+            'uses_non_standard_port',
+            'has_https_token_in_domain',
+            'request_url_feature',
+            'anchor_url_feature',
+            'links_in_tags_feature',
+            'server_form_handler_feature',
+            'submitting_info_to_email_feature',
+            'abnormal_url_feature',
+            'website_forwarding_feature',
+            'status_bar_customization_feature',
+            'disabling_right_click_feature',
+            'using_popup_window_feature',
+            'iframe_redirection_feature',
+            'age_of_domain_feature',
+            'dns_record_feature',
+            'website_traffic_feature',
+            'pagerank_feature',
+            'google_index_feature',
+            'number_of_links_pointing_to_page_feature',
+            'statistical_reports_based_feature'
+            ]
 
 if __name__ == "__main__":
     from inference_pipeline import predict
@@ -976,10 +983,8 @@ if __name__ == "__main__":
         extractor = FeatureExtractor(args.url)
         all_features = extractor.extract_all_features()
         print(len(all_features))
-        #print(extractor.parsed_url.netloc)
         print(f"URL: {args.url}")
-        for i in range(0,len(all_features[0])):
-            print(f"{i+1}: {all_features[0][i]}\t{features[i]}")
+        print(parse_features(all_features))
         prediction = predict(all_features)
         print(f"Prediction: {prediction[0]}, Probability: {prediction[1]*100}")
     except ValueError as e:

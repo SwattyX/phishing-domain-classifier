@@ -1,15 +1,23 @@
 # Python 3.11 slim image
 FROM python:3.11-slim
 
-# Environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
 # Set the working directory in the container
 WORKDIR /app
 
+# Install system requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gfortran \
+    libopenblas-dev \
+    liblapack-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
 # Install python dependencies
-RUN pip install -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
 COPY . .
@@ -18,4 +26,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the app
-CMD ["python", "run_app.py"]
+CMD ["sh", "-c", "python run_pipeline.py && python run_app.py"]

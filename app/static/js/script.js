@@ -32,11 +32,16 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.success) {
                 if (data.prediction === 0) {
                     resultAlert.className = 'alert alert-danger';
-                    resultAlert.innerHTML = `<strong style="font-size: 24px; color: red;">Phishing Detected!</strong><br><span style="font-size: 16px;">Probability: ${(data.probability * 100).toFixed(2)}%</span>`;
+                    resultAlert.innerHTML = `<strong style="font-size: 24px; color: red;">Phishing Detected!</strong>
+                    <br><span style="font-size: 16px;">Probability: ${(data.probability * 100).toFixed(2)}%</span>
+                    <br><span style="font-size: 16px; text-align: left;">Features:</span>
+                    <pre style="font-size: 16px; text-align: left;">${data.features}</pre>`;
                 } else {
                     resultAlert.className = 'alert alert-success';
-                    resultAlert.innerHTML = `<strong style="font-size: 24px; color: #3DE9E0;">Safe URL!</strong><br><span style="font-size: 16px;">Probability: ${(data.probability * 100).toFixed(2)}%</span>
-                    <br><span style="font-size: 16px;">Results: ${(data.probability)}</span>`;
+                    resultAlert.innerHTML = `<strong style="font-size: 24px; color: #3DE9E0;">Safe URL!</strong>
+                    <br><span style="font-size: 16px;">Probability: ${(data.probability * 100).toFixed(2)}%</span>
+                    <br><span style="font-size: 16px; text-align: left;">Features:</span>
+                    <pre style="font-size: 16px; text-align: left;">${data.features}</pre>`;
                 }
             } else {
                 throw new Error(data.message || 'An error occurred during prediction.');
