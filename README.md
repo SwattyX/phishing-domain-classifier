@@ -41,6 +41,7 @@ Welcome to the **ML Classification Project with Flask Integration**! This projec
 
 A well-organized project structure is crucial for managing complexity. Below is the recommended structure incorporating the **3 Pipeline Architecture** and Flask integration:
 
+```
 phishing_domain_classifier/
 │
 ├── app/
@@ -56,7 +57,7 @@ phishing_domain_classifier/
 │
 ├── data/
 │   ├── raw/
-│   │   └── phishing_data.arff
+│   │   └── phishing_data.csv
 │   ├── processed/
 │   └── external/
 │
@@ -85,7 +86,7 @@ phishing_domain_classifier/
 ├── Dockerfile
 ├── .gitignore
 └── README.md
-
+```
 
 
 **Key Directories and Files:**
@@ -111,7 +112,7 @@ phishing_domain_classifier/
   - **`utils.py`**: Utility functions.
 
 - **`models/`**: Serialized models and pipelines.
-  - **`phishing_classifier.pkl`**: Trained machine learning model.
+  - **`phishing_model.pkl`**: Trained machine learning model.
 
 - **`reports/`**: Documentation and reports.
 
