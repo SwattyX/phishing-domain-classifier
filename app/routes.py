@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify
 from src.feature_pipeline import FeatureExtractor, parse_features
 from src.config import Config
+from src.utils import extract_status_code
 import joblib
 import numpy as np
 import logging
@@ -39,5 +40,9 @@ def predict():
         })
 
     except Exception as e:
-        logging.error(f"Error during prediction: {e}")
-        return jsonify({'success': False, 'message': 'Invalid URL.'}), 500
+        logging.error(f"Error: {e}")
+        status_code = extract_status_code(str(e))
+        if status_code: 
+            return jsonify({'success': False, 'message': status_code}), 500
+        else:
+            return jsonify({'success': False, 'message': f"Invalid URL."}), 500

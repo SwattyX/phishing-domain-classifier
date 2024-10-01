@@ -1,5 +1,4 @@
 import pandas as pd
-import arff
 import re
 from urllib.parse import urlparse, urljoin
 import ssl
@@ -14,6 +13,10 @@ import os
 import json
 from typing import List, Optional
 import logging
+import base64
+
+# from dotenv import load_dotenv
+# load_dotenv()
 
 def load_data(file_path: str) -> pd.DataFrame:
     df = pd.read_csv(file_path)
@@ -33,20 +36,38 @@ class FeatureExtractor:
     def __init__(self, url: str):
         self._prepare_url(url)
         self._get_url_content()
-    
+
     def _prepare_url(self, url: str) -> None:
-        parsed = urlparse(url)
-        if not parsed.scheme:
-            self.input_url = url
-            url = 'http://' + url
+        self.tld_info = tldextract.extract(url)
+        if not self.tld_info.suffix:
+            raise ValueError(f"Invalid URL format: {url}")
+        try:
             parsed = urlparse(url)
-        self.url = url
-        self.parsed_url = parsed
-        self.domain = self.parsed_url.netloc.split(':')[0].lower() #self.parsed_url.hostname #
-        self.tld_info = tldextract.extract(self.domain)
-        self.subdomain = self.tld_info.subdomain.replace('www.', '')
-        # print(self.parsed_url)
-        # print(tldextract.extract(url))
+            if not parsed.scheme:
+                self.input_url = url
+                url = 'http://' + url
+                parsed = urlparse(url)
+            self.url = url
+            self.parsed_url = parsed
+            self.tld_info = tldextract.extract(self.url)
+            self.subdomain = self.tld_info.subdomain
+            self.hostname = self.parsed_url.netloc.split(':')[0].lower()
+            self.domain = self.tld_info.domain + '.' + self.tld_info.suffix
+            # self.domain = self.parsed_url.netloc.split(':')[0].lower() #self.parsed_url.hostname #
+            # self.subdomain = self.tld_info.subdomain.replace('www.', '')
+            # print(self.parsed_url)
+            # print(self.tld_info)
+            # print(f"Scheme: {self.parsed_url.scheme}")
+            # print(f"Subdomain: {self.subdomain}")
+            # print(f"Domain: {self.domain}")
+            # print(f"Suffix: {self.tld_info.suffix}")
+            # print(f"Hostname: {self.hostname}")
+            # print(f"URL: {self.url}")
+            # print(f"New self.url: {self.url}")
+            logging.info(f"URL: {self.url}")    
+        except Exception as e:
+            # print(f"Invalid URL {url} - {e}")
+            raise ValueError(f"Invalid URL {url} - {e}")
 
     def _get_url_content(self) -> None:
         try:
@@ -55,13 +76,11 @@ class FeatureExtractor:
                 raise ValueError(f"Unable to access {self.url}, HTTP Status: {self.response.status_code}")
             if self.response.history:
                 for resp in self.response.history:
-                    print(f"Redirected: {resp.url} -> {self.response.url}")
+                    logging.info(f"Redirected: {resp.url} -> {self.response.url}")
                     self._prepare_url(self.response.url)
-                    print(f"New self.url: {self.url}")
             self.soup = BeautifulSoup(self.response.content, 'html.parser')
             self._get_whois_info()
         except requests.exceptions.RequestException as e:
-            # raise ValueError(f"Error requesting URL: {e}")
             raise ValueError(f"Invalid URL {self.parsed_url.netloc} - {e}")
 
     def _get_whois_info(self) -> int:
@@ -88,7 +107,7 @@ class FeatureExtractor:
         else:
             return 1   # Legitimate
 
-    def url_length_feature(self) -> int:
+    def url_length(self) -> int:
         """
         Classify the URL based on its length.
         Returns:
@@ -104,7 +123,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing
 
-    def uses_tinyurl(self) -> int:
+    def uses_shortening_service(self) -> int:
         """
         Check if the URL uses a known URL shortening service.
         Returns:
@@ -180,20 +199,20 @@ class FeatureExtractor:
 
     def count_subdomains(self) -> int:
         """
-        Count the number of subdomains in the domain part of the URL.
+        Count the number of subdomains in the URL.
         Returns:
-            1 if dots in domain part == 1 (Legitimate)
-            0 if dots in domain part == 2 (Suspicious)
-           -1 if dots in domain part > 2 (Phishing)
+            1 if subdomain == 1 (Legitimate)
+            0 if subdomain == 2 (Suspicious)
+           -1 if subdomain > 2 (Phishing)
         """
         if self.subdomain:
-            dot_count = self.subdomain.count('.')
+            subdomain_count = len(self.subdomain.split('.'))
         else:
-            dot_count = 0
+            subdomain_count = 0
 
-        if dot_count == 0:
+        if subdomain_count == 0:
             return 1  # Legitimate
-        elif dot_count == 1:
+        elif subdomain_count == 1:
             return 0  # Suspicious
         else:
             return -1  # Phishing
@@ -206,27 +225,32 @@ class FeatureExtractor:
             0 if HTTPS is used but the certificate is invalid or untrusted (Suspicious)
         -1 otherwise (Phishing)
         """
-        parsed_url = self.parsed_url
-        port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
+        # Check if URL uses HTTPS
+        if not self.url.lower().startswith("https://"):
+            return "Phishing"
+
+        # Set default port for HTTPS
+        port = 443
+
+        # Create a socket and establish SSL connection
         context = ssl.create_default_context()
-        domain = self.domain
-        print(f"Domain: {domain}")
+        logging.info(f"Checking SSL in: {self.hostname}")
         try:
             # Create a socket connection with server
-            with socket.create_connection((domain, port), timeout=5) as sock:           
-                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+            with socket.create_connection((self.hostname, port), timeout=5) as sock:           
+                with context.wrap_socket(sock, server_hostname=self.hostname) as ssock:
                     # The SSL certificate is validated upon wrapping the socket
                     # If there's an issue, an exception will be raised
                     cert = ssock.getpeercert()
-                return 1  # Legitimate
+                    return 1  # Legitimate
         except ssl.CertificateError:
-            print("Certificate is invalid or does not match the hostname")
+            logging.info("Certificate is invalid or does not match the hostname")
             return 0  # Suspicious
         except (ssl.SSLError, socket.error, socket.timeout):
-            print("SSL or socket-related errors")
+            logging.info("SSL or socket-related errors")
             return -1  # Phishing
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            logging.info(f"Unexpected error: {e}")
             return -1  # Phishing
 
     def domain_registration_length(self) -> int:
@@ -236,14 +260,8 @@ class FeatureExtractor:
             -1 if domain expires in <=1 year (Phishing)
              1 otherwise (Legitimate)
         """
-        domain = self.parsed_url.hostname
-        if not domain:
-            return -1  # Phishing
-
         try:
-            # print(self.whois)
             expiration_date = self.whois.expiration_date
-            # print("expiration_date: ",expiration_date)
 
             if isinstance(expiration_date, list):
                 expiration_date = expiration_date[0]  # Take the first expiration date
@@ -269,8 +287,7 @@ class FeatureExtractor:
             -1 if favicon is from external domain (Phishing)
              1 otherwise (Legitimate)
         """
-        soup = self.soup
-        icon_link = soup.find('link', rel=lambda x: x and 'icon' in x.lower())
+        icon_link = self.soup.find('link', rel=lambda x: x and 'icon' in x.lower())
         if icon_link and icon_link.get('href'):
             favicon_url = urljoin(self.url, icon_link.get('href'))
             favicon_domain = urlparse(favicon_url).hostname.lower()
@@ -312,17 +329,17 @@ class FeatureExtractor:
 
     def has_https_token_in_domain(self) -> int:
         """
-        Check if the domain part of the URL contains the 'https' token.
+        Check if the hostname part of the URL contains the 'https' token.
         Rule:
-            IF 'https' is present in the domain → Phishing
+            IF 'https' is present in the hostname → Phishing
             ELSE → Legitimate
         Returns:
-            -1 if 'https' is present in the domain (Phishing)
+            -1 if 'https' is present in the hostname (Phishing)
             1 otherwise (Legitimate)
         """
-        return -1 if 'https' in self.domain else 1
+        return -1 if 'https' in self.hostname else 1
 
-    def request_url_feature(self) -> int:
+    def request_url(self) -> int:
         """
         Calculate the percentage of external request URLs in the webpage.
         Rule:
@@ -334,7 +351,6 @@ class FeatureExtractor:
             0  if 22% <= percentage < 61% (Suspicious)
         -1  if percentage >= 61% (Phishing)
         """
-        soup = self.soup
         external_requests = 0
         total_requests = 0
 
@@ -351,22 +367,19 @@ class FeatureExtractor:
         }
 
         for tag, attr in resource_tags.items():
-            for resource in soup.find_all(tag):
+            for resource in self.soup.find_all(tag):
                 url = resource.get(attr)
                 if url:
                     total_requests += 1
-                    resource_domain = urlparse(urljoin(self.url, url)).netloc
-                    # print(f"urlparse(urljoin({self.url}, {url}))")
-                    # print(f"netloc: {urlparse(urljoin(self.url, url)).netloc}")
+                    resource_domain = tldextract.extract(urljoin(self.url, url))
+                    resource_domain = resource_domain.domain + '.' + resource_domain.suffix
                     if resource_domain and resource_domain != self.domain:
                         external_requests += 1
-                    # print(f"{resource_domain} != {self.domain}")
 
         if total_requests == 0:
             percentage = 0
         else:
             percentage = (external_requests / total_requests) * 100
-        # print(f"{external_requests} / {total_requests}")
         if percentage < 22:
             return 1  # Legitimate
         elif 22 <= percentage < 61:
@@ -374,7 +387,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing
 
-    def anchor_url_feature(self) -> int:
+    def anchor_url(self) -> int:
         """
         Calculate the percentage of external anchor URLs in the webpage.
         Rule:
@@ -386,25 +399,23 @@ class FeatureExtractor:
             0  if 31% <= percentage <= 67% (Suspicious)
         -1  if percentage > 67% (Phishing)
         """
-        soup = self.soup
         external_anchors = 0
         total_anchors = 0
 
-        for a_tag in soup.find_all('a', href=True):
+        for a_tag in self.soup.find_all('a', href=True):
             href = a_tag['href']
             if href.startswith('#') or href.lower().startswith('javascript:'):
                 continue  # Ignore non-navigational anchors
 
             total_anchors += 1
-            anchor_domain = urlparse(urljoin(self.url, href)).netloc
+            anchor_domain = tldextract.extract(urljoin(self.url, href))
+            anchor_domain = anchor_domain.domain + '.' + anchor_domain.suffix
             if anchor_domain and anchor_domain != self.domain:
                 external_anchors += 1
-            # print(f"{anchor_domain} != {self.domain}")
         if total_anchors == 0:
             percentage = 0
         else:
             percentage = (external_anchors / total_anchors) * 100
-        # print(f"{external_anchors} / {total_anchors}")
         if percentage < 31:
             return 1  # Legitimate
         elif 31 <= percentage <= 67:
@@ -412,7 +423,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing
 
-    def links_in_tags_feature(self) -> int:
+    def links_in_tags(self) -> int:
         """
         Calculate the percentage of external links in <meta>, <script>, and <link> tags.
         Rule:
@@ -424,7 +435,6 @@ class FeatureExtractor:
             0  if 17% <= percentage <= 81% (Suspicious)
         -1  if percentage > 81% (Phishing)
         """
-        soup = self.soup
         external_links = 0
         total_links = 0
 
@@ -436,11 +446,12 @@ class FeatureExtractor:
         }
 
         for tag, attr in tags_to_inspect.items():
-            for element in soup.find_all(tag):
+            for element in self.soup.find_all(tag):
                 url = element.get(attr)
                 if url:
                     total_links += 1
-                    link_domain = urlparse(urljoin(self.url, url)).netloc
+                    link_domain = tldextract.extract(urljoin(self.url, url))
+                    link_domain = link_domain.domain + '.' + link_domain.suffix
                     if link_domain and link_domain != self.domain:
                         external_links += 1
 
@@ -456,7 +467,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing
 
-    def server_form_handler_feature(self) -> int:
+    def server_form_handler(self) -> int:
         """
         Check the server form handler (SFH) of all forms in the webpage.
         Rule:
@@ -468,8 +479,7 @@ class FeatureExtractor:
             0  if SFH refers to a different domain (Suspicious)
             1  otherwise (Legitimate)
         """
-        soup = self.soup
-        forms = soup.find_all('form')
+        forms = self.soup.find_all('form')
         if not forms:
             return 1  # No forms, consider Legitimate
 
@@ -480,13 +490,13 @@ class FeatureExtractor:
                 results.append(-1)  # Phishing
                 continue
 
-            action_domain = urlparse(urljoin(self.url, action)).netloc
-            # print(f"{action_domain} != {self.domain}")
+            action_domain = tldextract.extract(urljoin(self.url, action))
+            action_domain = action_domain.domain + '.' + action_domain.suffix
             if action_domain and action_domain != self.domain:
                 results.append(0)  # Suspicious
             else:
                 results.append(1)  # Legitimate
-        # print(results)
+
         # Aggregate results
         if any(result == -1 for result in results):
             return -1  # Phishing if any form is phishing
@@ -495,7 +505,7 @@ class FeatureExtractor:
         else:
             return 1  # Legitimate
 
-    def submitting_info_to_email_feature(self) -> int:
+    def submitting_info_to_email(self) -> int:
         """
         Check if the webpage submits information using 'mail()' in PHP or 'mailto:' links.
         Rule:
@@ -520,31 +530,16 @@ class FeatureExtractor:
 
         return 1  # Legitimate
    
-    def abnormal_url_feature(self) -> int:
+    def abnormal_url(self) -> int:
         """
         Check if the host name is included in the URL outside the domain part.
         Returns:
-            -1 if host name is included elsewhere in the URL (Phishing)
+            -1 if host name is not included in the URL (Phishing)
              1 otherwise (Legitimate)
         """
-        try:
-            main_domain = self.tld_info.domain
-            suffix = self.tld_info.suffix
-            host_name = f"{main_domain}.{suffix}"
-            
-            # Check if the host name appears in the path, query, or fragment
-            url_components = [
-                self.parsed_url.path.lower(),
-                self.parsed_url.query.lower(),
-                self.parsed_url.fragment.lower()
-            ]
-            host_in_url = any(host_name.lower() in component for component in url_components)
-            
-            return -1 if host_in_url else 1
-        except Exception:
-            return -1  # Phishing in case of any exception
+        return 1 if self.subdomain else -1
 
-    def website_forwarding_feature(self) -> int:
+    def website_forwarding(self) -> int:
         """
         Check the number of redirects the URL undergoes.
         Returns:
@@ -553,7 +548,6 @@ class FeatureExtractor:
            -1  if redirects >=4 (Phishing)
         """
         redirect_count = len(self.response.history)
-        
         if redirect_count <= 1:
             return 1  # Legitimate
         elif 2 <= redirect_count < 4:
@@ -561,7 +555,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing
 
-    def status_bar_customization_feature(self) -> int:
+    def status_bar_customization(self) -> int:
         """
         Check if the webpage changes the status bar using onMouseOver events.
         Returns:
@@ -581,7 +575,7 @@ class FeatureExtractor:
         except Exception:
             return -1  # Phishing in case of any exception
         
-    def disabling_right_click_feature(self) -> int:
+    def disabling_right_click(self) -> int:
         """
         Check if the webpage disables right-click using JavaScript.
         Returns:
@@ -600,15 +594,14 @@ class FeatureExtractor:
         except Exception:
             return -1  # Phishing in case of any exception
 
-    def using_popup_window_feature(self) -> int:
+    def using_popup_window(self) -> int:
         """
         Check if pop-up windows contain text fields.
         Returns:
             -1 if pop-up contains text fields (Phishing)
              1 otherwise (Legitimate)
         """
-        soup = self.soup
-        scripts = soup.find_all('script')
+        scripts = self.soup.find_all('script')
         popup_with_text = False
         
         for script in scripts:
@@ -622,20 +615,19 @@ class FeatureExtractor:
         
         return -1 if popup_with_text else 1
 
-    def iframe_redirection_feature(self) -> int:
+    def iframe_redirection(self) -> int:
         """
         Check if the webpage uses <iframe> tags.
         Returns:
             -1 if <iframe> is used (Phishing)
             1 otherwise (Legitimate)
         """
-        soup = self.soup 
-        if soup.find('iframe'):
+        if self.soup.find('iframe'):
             return -1  # Phishing
         else:
             return 1   # Legitimate
 
-    def age_of_domain_feature(self) -> int:
+    def age_of_domain(self) -> int:
         """
         Check the age of the domain.
         Returns:
@@ -661,7 +653,7 @@ class FeatureExtractor:
         else:
             return -1  # Phishing if creation_date is not datetime
 
-    def dns_record_feature(self) -> int:
+    def dns_record(self) -> int:
         """
         Check if the domain has a DNS record.
         Returns:
@@ -676,94 +668,98 @@ class FeatureExtractor:
         except Exception:
             return -1  # Phishing in case of any exception
 
-    def website_traffic_feature(self) -> int:
+    def website_traffic(self) -> int:
         """
-        Check the website's traffic rank using the SimilarWeb API.
-        Rule:
-            IF Website Rank < 100,000 → Legitimate
-            IF 100,000 <= Website Rank → Suspicious
-            ELSE → Phishing
-        Returns:
-            1  if rank < 100,000 (Legitimate)
-            0  if 100,000 <= rank < Some Upper Limit (Suspicious)
-           -1  otherwise (Phishing)
-        """
-        similarweb_api_key = os.getenv('SIMILARWEB_API_KEY')
-        if not similarweb_api_key:
-            return -1  # Phishing if API key not set
+        Checks the website rank from the Tranco API and classifies it.
 
+        Parameters:
+            domain (str): The domain to check (e.g., 'example.com').
+            username (str): Your Tranco API username.
+            password (str): Your Tranco API password.
+
+        Returns:
+            int: 
+                1  if rank < 100,000 (Legitimate)
+                0  if 100,000 <= rank < Some Upper Limit (Suspicious)
+            -1  otherwise (Phishing)
+        """
         try:
-            import requests
-            url = f"https://api.similarweb.com/v1/website/{self.domain}/total-traffic-and-engagement/visits?api_key={similarweb_api_key}&start=2023&end=2023&country=world&granularity=monthly"
-            response = requests.get(url, timeout=10)
+            TRANCO_URL = f"https://tranco-list.eu/api/ranks/domain/{self.domain}"
+            TRANCO_API_USERNAME = os.getenv('TRANCO_API_USERNAME')
+            TRANCO_API_PASSWORD = os.getenv('TRANCO_API_PASSWORD')
+
+            if not TRANCO_API_USERNAME or not TRANCO_API_PASSWORD:
+                logging.error("TRANCO keys not found")
+                return -1  # Phishing if API credentials not set
+
+            response = requests.get(TRANCO_URL, auth=(TRANCO_API_USERNAME, TRANCO_API_PASSWORD))
+
             if response.status_code != 200:
-                return -1  # Phishing if API call fails
-
-            data = response.json()
-            # Assuming 'visits' is a list of monthly visit counts
-            total_visits = sum(month['visits'] for month in data.get('visits', []))
-            # Simple heuristic: higher total visits imply higher rank
-            # In reality, SimilarWeb provides a separate ranking
-            # Placeholder logic:
-            if total_visits == 0:
+                logging.error(f"API request failed with status code {response.status_code}: {response.text}")
                 return -1  # Phishing
-            elif total_visits < 100000:
-                return 1   # Legitimate
+            
+            data = response.json()
+            ranks = data.get('ranks', [])
+            if not ranks:
+                logging.warning(f"No rank data available for domain: {self.domain}")
+                return -1  # Phishing
+            rank_today = sorted(ranks, key=lambda x: x['date'], reverse=True)[0].get('rank')
+            logging.info(f"Rank for {self.domain}: {rank_today}")
+
+            if rank_today < 100000:
+                return 1  # Legitimate
+            elif rank_today >= 100000:
+                return 0  # Suspicious
             else:
-                return 0   # Suspicious
-        except Exception:
-            return -1  # Phishing in case of any exception
+                return -1  # Phishing
 
-    def pagerank_feature(self) -> int:
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            return -1  # Phishing
+
+    def pagerank(self) -> int:
         """
-        Check the PageRank of the domain using the Moz API.
-        Rule:
-            IF PageRank < 0.2 → Phishing
-            ELSE → Legitimate
+        Retrieves the PageRank of the domain and classifies it according to the rule:
+        If PageRank < 0.2 --> 0 'Phishing'
+        Otherwise --> 1 'Legitimate'
+
         Returns:
-            -1 if PageRank < 0.2 (Phishing)
-             1 otherwise (Legitimate)
+            str: 0 or 1 based on the evaluation.
         """
-        moz_access_id = os.getenv('MOZ_ACCESS_ID')
-        moz_secret_key = os.getenv('MOZ_SECRET_KEY')
-        if not moz_access_id or not moz_secret_key:
-            return -1  # Phishing if API credentials not set
-
         try:
-            import requests
-            import base64
-            import hashlib
-            import hmac
-            from datetime import datetime, timedelta
-
-            # Construct the Moz API request
-            expires = int((datetime.utcnow() + timedelta(minutes=5)).timestamp())
-            string_to_sign = f"{moz_access_id}\n{expires}"
-            signature = base64.b64encode(hmac.new(moz_secret_key.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()).rstrip()
-
-            url = f"https://lsapi.seomoz.com/linkscape/url-metrics/{self.domain}"
-            params = {
-                'Cols': '68719476736'  # PR metric
-            }
+            OPENRANK_URL = "https://openpagerank.com/api/v1.0/getPageRank"
+            OPENRANK_KEY = os.getenv('OPENRANK_KEY')
+            if not OPENRANK_KEY:
+                logging.error("OPENRANK keys not found")
+                return -1  # Phishing if API credentials not set
+            
             headers = {
-                'Authorization': f"AccessID={moz_access_id}; Expires={expires}; Signature={signature.decode()}"
+                "API-OPR":OPENRANK_KEY
             }
-
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            if response.status_code != 200:
-                return -1  # Phishing if API call fails
-
+            params = {
+                "domains[]": self.domain
+            }
+            response = requests.get(OPENRANK_URL, headers=headers, params=params)
             data = response.json()
-            pagerank = data.get('pda', 0) / 10  # Normalize to 0-1 scale
 
-            if pagerank < 0.2:
-                return -1  # Phishing
+            if response.status_code == 200 and 'response' in data:
+                page_rank = data['response'][0].get('page_rank_decimal', None)
+                if page_rank is None:
+                    logging.warning(f"Could not obtain the PageRank of {self.domain}")
+                    return 0
+                if page_rank < 0.2:
+                    return 0
+                else:
+                    return 1
             else:
-                return 1   # Legitimate
-        except Exception:
-            return -1  # Phishing in case of any exception
+                logging.error(f"OPENRANK API Error: {data}")
+                return 0
 
-    def google_index_feature(self) -> int:
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            return 0
+
+    def google_index(self) -> int:
         """
         Check if the webpage is indexed by Google using the Google Custom Search API.
         Rule:
@@ -771,35 +767,37 @@ class FeatureExtractor:
             ELSE → Phishing
         Returns:
             1  if indexed (Legitimate)
-           -1  otherwise (Phishing)
+        -1  otherwise (Phishing)
         """
-        google_api_key = os.getenv('GOOGLE_API_KEY')
-        google_cse_id = os.getenv('GOOGLE_CSE_ID')
-        if not google_api_key or not google_cse_id:
-            return -1  # Phishing if API credentials not set
-
         try:
-            import requests
+            GOOGLE_API_URL = "https://www.googleapis.com/customsearch/v1"
+            GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+            GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
+            if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
+                logging.error("Google keys not found")
+                return -1  # Phishing if API credentials not set
+
             query = f"site:{self.domain}"
-            url = "https://www.googleapis.com/customsearch/v1"
             params = {
-                'key': google_api_key,
-                'cx': google_cse_id,
+                'key': GOOGLE_API_KEY,
+                'cx': GOOGLE_CSE_ID,
                 'q': query
             }
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code != 200:
-                return -1  # Phishing if API call fails
 
+            response = requests.get(GOOGLE_API_URL, params=params, timeout=5)
+            if response.status_code != 200:
+                logging.error("GOOGLE API call failed")
+                return -1  # Phishing if API call fails
             data = response.json()
             if 'items' in data and len(data['items']) > 0:
                 return 1  # Legitimate
             else:
                 return -1  # Phishing
         except Exception:
+            logging.error(f"GOOGLE API Error: {e}")
             return -1  # Phishing in case of any exception
 
-    def number_of_links_pointing_to_page_feature(self) -> int:
+    def number_of_links_pointing_to_page(self) -> int:
         """
         Check the number of external links pointing to the webpage using the Moz Link Explorer API.
         Rule:
@@ -811,92 +809,76 @@ class FeatureExtractor:
              0 if 0 < #Links <=2 (Suspicious)
              1 if #Links >2 (Legitimate)
         """
-        moz_access_id = os.getenv('MOZ_ACCESS_ID')
-        moz_secret_key = os.getenv('MOZ_SECRET_KEY')
-        if not moz_access_id or not moz_secret_key:
-            return -1  # Phishing if API credentials not set
-
         try:
-            import requests
-            import base64
-            import hashlib
-            import hmac
-            from datetime import datetime, timedelta
+            RAPIDAPI_HOST = os.getenv('RAPIDAPI_HOST')
+            RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
+            RAPIDAPI_URL = "https://best-backlink-checker-api.p.rapidapi.com/excatbacklinks_noneng.php"
+            if not RAPIDAPI_HOST or not RAPIDAPI_KEY:
+                logging.error("Rapid API keys not found")
+                return -1  # Phishing if API credentials not set
 
-            # Construct the Moz API request
-            expires = int((datetime.utcnow() + timedelta(minutes=5)).timestamp())
-            string_to_sign = f"{moz_access_id}\n{expires}"
-            signature = base64.b64encode(hmac.new(moz_secret_key.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()).rstrip()
-
-            url = f"https://lsapi.seomoz.com/linkscape/url-metrics/{self.domain}"
-            params = {
-                'Cols': '128'  # External Links
-            }
+            query = {"domain":self.url}
             headers = {
-                'Authorization': f"AccessID={moz_access_id}; Expires={expires}; Signature={signature.decode()}"
+                "x-rapidapi-key": RAPIDAPI_KEY,
+                "x-rapidapi-host": RAPIDAPI_HOST
             }
 
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response = requests.get(RAPIDAPI_URL, headers=headers, params=query)
             if response.status_code != 200:
+                logging.error("RAPIDAPI call failed")
                 return -1  # Phishing if API call fails
 
             data = response.json()
-            external_links = data.get('uid', 0)  # Placeholder for actual external links count
-
-            # Note: Adjust the key based on the API's actual response structure
-            # This is a placeholder and may need to be updated accordingly
-
+            print(data)
+            external_links = len(data)
+            print(f"RAPIDAPI len: {external_links}")
             if external_links == 0:
                 return -1  # Phishing
             elif 0 < external_links <= 2:
                 return 0   # Suspicious
             else:
                 return 1   # Legitimate
-        except Exception:
+        except Exception as e:
+            logging.error(f"Error: {e}")
             return -1  # Phishing in case of any exception
 
-    def statistical_reports_based_feature(self) -> int:
+    def statistical_reports_based(self) -> int:
         """
         Check if the host belongs to top phishing IPs or top phishing domains.
         Returns:
             -1 if host is in top phishing IPs or domains (Phishing)
              1 otherwise (Legitimate)
         """
-        # Load the lists from local files or a database
-        # Example assumes you have two sets: top_phishing_ips and top_phishing_domains
         try:
-            # Example: Load from JSON files
-            top_phishing_ips = set()
-            top_phishing_domains = set()
-            
-            with open('data/top_phishing_ips.json', 'r') as f:
-                top_phishing_ips = set(json.load(f))
-            
-            with open('data/top_phishing_domains.json', 'r') as f:
-                top_phishing_domains = set(json.load(f))
-            
-            # Check if the domain's IP is in top phishing IPs
-            try:
-                ip_address = socket.gethostbyname(self.domain)
-                if ip_address in top_phishing_ips:
-                    return -1  # Phishing
-            except socket.gaierror:
-                pass  # Ignore DNS errors here
-                
-            # Check if the domain is in top phishing domains
-            if self.domain in top_phishing_domains:
-                return -1  # Phishing
-            
-            return 1  # Legitimate
-        except Exception:
+            PHISH_URL = "https://checkurl.phishtank.com/checkurl/"
+            headers = {
+                "User-Agent": 'phishtank/swatty'
+            }
+            params = {
+                "url": base64.b64encode(self.url.encode()).decode(),
+                "format": 'json',
+                "app_key": ''
+            }
+
+            response = requests.post(PHISH_URL, params=params, headers=headers)
+            soup = BeautifulSoup(response.content, 'lxml-xml')
+            in_database_tag = soup.find('in_database')
+            in_database_value = in_database_tag.text.strip().lower()
+
+            if in_database_value == 'true':
+                return -1
+            else: 
+                return 1
+        except Exception as e:
+            logging.error(f"Error: {e}")
             return -1  # Phishing in case of any exception
 
     def extract_all_features(self) -> List[int]:
-        """Extract all features and return them as a list."""
+        # Extract all features and return them as a list.
         features = [
             self.has_ip_address(),                  # Feature 1: Using the IP Address
-            self.url_length_feature(),              # Feature 2: Long URL to Hide the Suspicious Part
-            self.uses_tinyurl(),                    # Feature 3: Using URL Shortening Services “TinyURL”
+            self.url_length(),                      # Feature 2: Long URL to Hide the Suspicious Part
+            self.uses_shortening_service(),                    # Feature 3: Using URL Shortening Services “TinyURL”
             self.has_at_symbol(),                   # Feature 4: URL’s having “@” Symbol
             self.has_multiple_slashes(),            # Feature 5: Redirecting using “//”
             self.has_hyphen_in_domain(),            # Feature 6: Adding Prefix or Suffix Separated by (-) to the Domain
@@ -906,26 +888,24 @@ class FeatureExtractor:
             self.favicon_external(),                # Feature 10: Favicon
             self.uses_non_standard_port(),          # Feature 11: Using Non-Standard Port
             self.has_https_token_in_domain(),       # Feature 12: Existence of “HTTPS” Token in the Domain Part of the URL
-            self.request_url_feature(),             # Feature 13: Request URL
-            self.anchor_url_feature(),              # Feature 14: URL of Anchor
-            self.links_in_tags_feature(),           # Feature 15: Links in <Meta>, <Script>, and <Link> Tags
-            self.server_form_handler_feature(),     # Feature 16: Server Form Handler (SFH)
-            self.submitting_info_to_email_feature(),# Feature 17: Submitting Information to Email
-            self.abnormal_url_feature(),            # Feature 18: Abnormal URL
-            self.website_forwarding_feature(),      # Feature 19: Website Forwarding
-            self.status_bar_customization_feature(),# Feature 20: Status Bar Customization
-            self.disabling_right_click_feature(),   # Feature 21: Disabling Right Click
-            self.using_popup_window_feature(),      # Feature 22: Using Pop-up Window
-            self.iframe_redirection_feature(),      # Feature 23: IFrame Redirection
-            self.age_of_domain_feature(),           # Feature 24: Age of Domain
-            self.dns_record_feature(),              # Feature 25: DNS Record
-            self.website_traffic_feature(),         # Feature 26: Website Traffic
-            self.pagerank_feature(),                # Feature 27: PageRank
-            self.google_index_feature(),            # Feature 28: Google Index
-            self.number_of_links_pointing_to_page_feature(),  # Feature 29: Number of Links Pointing to Page
-            self.statistical_reports_based_feature()# Feature 30: Statistical-Reports Based Feature
-
-            # Add more feature method calls here as needed
+            self.request_url(),                     # Feature 13: Request URL
+            self.anchor_url(),                      # Feature 14: URL of Anchor
+            self.links_in_tags(),                   # Feature 15: Links in <Meta>, <Script>, and <Link> Tags
+            self.server_form_handler(),             # Feature 16: Server Form Handler (SFH)
+            self.submitting_info_to_email(),        # Feature 17: Submitting Information to Email
+            self.abnormal_url(),                    # Feature 18: Abnormal URL
+            self.website_forwarding(),              # Feature 19: Website Forwarding
+            self.status_bar_customization(),        # Feature 20: Status Bar Customization
+            self.disabling_right_click(),           # Feature 21: Disabling Right Click
+            self.using_popup_window(),              # Feature 22: Using Pop-up Window
+            self.iframe_redirection(),              # Feature 23: IFrame Redirection
+            self.age_of_domain(),                   # Feature 24: Age of Domain
+            self.dns_record(),                      # Feature 25: DNS Record
+            self.website_traffic(),                 # Feature 26: Website Traffic
+            self.pagerank(),                        # Feature 27: PageRank
+            self.google_index(),                    # Feature 28: Google Index
+            self.number_of_links_pointing_to_page(),# Feature 29: Number of Links Pointing to Page
+            self.statistical_reports_based()        # Feature 30: Statistical-Reports Based Feature
         ]
         return [features]
 
@@ -941,8 +921,8 @@ def parse_features(features: list) -> str:
 
 FEATURES=[
             'has_ip_address',
-            'url_length_feature',
-            'uses_tinyurl',
+            'url_length',
+            'uses_shortening_service',
             'has_at_symbol',
             'has_multiple_slashes',
             'has_hyphen_in_domain',
@@ -952,24 +932,24 @@ FEATURES=[
             'favicon_external',
             'uses_non_standard_port',
             'has_https_token_in_domain',
-            'request_url_feature',
-            'anchor_url_feature',
-            'links_in_tags_feature',
-            'server_form_handler_feature',
-            'submitting_info_to_email_feature',
-            'abnormal_url_feature',
-            'website_forwarding_feature',
-            'status_bar_customization_feature',
-            'disabling_right_click_feature',
-            'using_popup_window_feature',
-            'iframe_redirection_feature',
-            'age_of_domain_feature',
-            'dns_record_feature',
-            'website_traffic_feature',
-            'pagerank_feature',
-            'google_index_feature',
-            'number_of_links_pointing_to_page_feature',
-            'statistical_reports_based_feature'
+            'request_url',
+            'anchor_url',
+            'links_in_tags',
+            'server_form_handler',
+            'submitting_info_to_email',
+            'abnormal_url',
+            'website_forwarding',
+            'status_bar_customization',
+            'disabling_right_click',
+            'using_popup_window',
+            'iframe_redirection',
+            'age_of_domain',
+            'dns_record',
+            'website_traffic',
+            'pagerank',
+            'google_index',
+            'number_of_links_pointing_to_page',
+            'statistical_reports_based'
             ]
 
 if __name__ == "__main__":
@@ -982,8 +962,6 @@ if __name__ == "__main__":
     try:
         extractor = FeatureExtractor(args.url)
         all_features = extractor.extract_all_features()
-        print(len(all_features))
-        print(f"URL: {args.url}")
         print(parse_features(all_features))
         prediction = predict(all_features)
         print(f"Prediction: {prediction[0]}, Probability: {prediction[1]*100}")

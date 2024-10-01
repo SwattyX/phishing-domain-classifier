@@ -33,9 +33,11 @@ data/external/
 *.log
 
 # Local
+.env
 venv/
 notebooks/feature_extraction.ipynb
 reports/
 models/*
 *.toml
 notebooks/phishing_classifier_eda.ipynb
+.tranco

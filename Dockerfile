@@ -26,4 +26,5 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the app
-CMD ["sh", "-c", "python run_pipeline.py && python run_app.py"]
+# CMD ["sh", "-c", "python run_pipeline.py && python run_app.py"]
+CMD ["sh", "-c", "python run_pipeline.py && gunicorn -w 2 -b 0.0.0.0:8000 run_app:app"]

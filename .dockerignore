@@ -9,3 +9,5 @@ reports/
 models/*
 *.log
 *.toml
+.env
+.tranco
