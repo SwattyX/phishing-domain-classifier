@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.Python
+env/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Environments
+.env
+
+# MacOS
+.DS_Store
+
+# IDE settings
+.idea/
+.vscode/
+
+# Data files
+data/raw/
+data/external/
+
+# Logs
+*.log
+
+# Local
+.env
+venv/
+models/*
+*.toml
+notebooks/feature_extraction.ipynb
+notebooks/phishing_classifier_eda_prompt.ipynb
+notebooks/phishing_classifier_eda_scalled.ipynb
+notebooks/phishing_classifier_eda_tunned.ipynb
+.tranco
